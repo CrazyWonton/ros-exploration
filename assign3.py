@@ -22,6 +22,7 @@ import math
 distance = [0.0,0.0,0.0]
 previousDistance = [0.0,0.0,0.0]
 state = ['blocked','blocked']
+startTime = 0.0
 
 def update_laserScanData(data):
 	#param the laser scan data
@@ -84,6 +85,7 @@ def computeControlSignal():
 	global distance
 	global state
 	global previousDistance
+	global startTime
 	
 	vel_msg = Twist()
 	vel_msg.linear.x = 0
@@ -93,9 +95,15 @@ def computeControlSignal():
 	vel_msg.angular.y = 0
 	vel_msg.angular.z = 0
 	
-	turnSpeed = 0.5
-	velocity = 0.5
+	turnSpeed = 0.6
+	velocity = 0.7
 	
+	#periodic stop and backup
+	if (rospy.get_time()-startTime) > 5 and state[0] == 'coast' and state[1] == 'coast':
+		startTime = rospy.get_time()
+		vel_msg.linear.x = -velocity
+		return vel_msg
+		
 	#coasting
 	if distance[1] > 1.5:
 		if state[0] == 'coast':
@@ -120,9 +128,10 @@ def computeControlSignal():
 	diffLeft = ((previousDistance[0]-distance[0])**2)
 	diffRight = ((previousDistance[2]-distance[2])**2)
 	
-	if  (diffCenter > 0 and diffCenter < 0.0025) or (diffLeft > 0 and diffLeft < 0.0025) or (diffRight > 0 and diffRight < 0.0025):
-		state[0] = state[1] = 'blocked'
-		vel_msg.angular.z = -turnSpeed
+	# or (diffLeft > 0 and diffLeft < 0.0025) or (diffRight > 0 and diffRight < 0.0025)
+	#if  (diffCenter > 0 and diffCenter < 0.00125):
+	#	state[0] = state[1] = 'blocked'
+	#	vel_msg.angular.z = -turnSpeed
 	
 	previousDistance[0] = distance[0]
 	previousDistance[1] = distance[1]
@@ -136,6 +145,7 @@ if __name__ == '__main__':
 	#initialize laserData
 	laserData = LaserScan()
 	global currentVel
+	global startTime
 	
 	#set subscribers
 	rospy.Subscriber("/scan", LaserScan, update_laserScanData)
@@ -143,7 +153,6 @@ if __name__ == '__main__':
 	#set publishers
 	pubControlSignals = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size=2)
 
-	startTime = rospy.get_time()
 	while not rospy.is_shutdown():
 		rospy.sleep(0.3)
 
