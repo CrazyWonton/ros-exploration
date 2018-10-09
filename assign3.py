@@ -1,6 +1,5 @@
 #! /usr/bin/env python
 
-
 #The purpose of this program is to generate control signals based on laser scan readings
 #
 #
@@ -15,99 +14,139 @@
 import rospy
 import roslib
 from geometry_msgs.msg import Twist
+from sensor_msgs.msg import LaserScan
+import random
+import math
 
-global laserData
-global distance
-global currentVel
+#left middle right
+distance = [0.0,0.0,0.0]
+state = 'stationary'
 
 def update_laserScanData(data):
-	laserData = data
-
-def getDistanceToWall(ld):
 	#param the laser scan data
 	#finds the distance to the nearest object if applicable and returns it
 	#640 scans are produced in this case, so we take the middle portion
 	#	which is basically directly in front of the robot
-	i = 315
+	global distance
+	global state
+	
+	numberOfEntries = len(data.ranges)
+	dataRange = numberOfEntries/50
+	lowerBound = (numberOfEntries/2) - dataRange
+	upperBound = (numberOfEntries/2) + dataRange
+	
+	#compute distance on left
 	total = 0
 	numEntries = 0
-	while i < 325:
-		if ld[i] > 0.45 && ld[i] < 10.0:
-			total += ld[i]
-			numEntries++
-
-	return (total/numEntries)
+	i = 0
+	while i < dataRange:
+		if data.ranges[i] > 0.45 and data.ranges[i] < 10.0:
+			total += data.ranges[i]
+			numEntries+=1
+		i+=1
+	if numEntries > 0:
+		distance[0] = (total/numEntries)
+	else:
+		distance[0] = 0
 	
-def computeControlSignal(d):
+	#compute distance in center
+	total = 0
+	numEntries = 0
+	i = lowerBound
+	while i < upperBound:
+		if data.ranges[i] > 0.45 and data.ranges[i] < 10.0:
+			total += data.ranges[i]
+			numEntries+=1
+		i+=1
+	
+	if numEntries > 0:
+		distance[1] = (total/numEntries)
+	else:
+		distance[1] = 10
+
+	#compute distance on right
+	total = 0
+	numEntries = 0
+	i = numberOfEntries - 1
+	while i > (numberOfEntries-dataRange):
+		if data.ranges[i] > 0.45 and data.ranges[i] < 10.0:
+			total += data.ranges[i]
+			numEntries+=1
+		i-=1
+	if numEntries > 0:
+		distance[2] = (total/numEntries)
+	else:
+		distance[2] = 0
+
+def computeControlSignal():
 	#takes in the distance to the wall
 	#returns a control signal
-	def noObstacles():
-		vel_msg = Twist()
-		vel_msg.linear.y = 0
-		vel_msg.linear.z = 0
-		
-		if currentVel < 1:
-			vel_msg.linear.x = currentVel + 0.1
-		else
-			vel_msg.linear.x = currentVel
-		
-		currentVel = vel_msg.linear.x
-		vel_msg.angular.x = 0
-		vel_msg.angular.y = 0
-		vel_msg.angular.z = 0
-		return vel_msg
-		
-	def approachingObstacle():
-		vel_msg = Twist()
-		vel_msg.linear.y = 0
-		vel_msg.linear.z = 0
-		
-		if currentVel > 0.5:
-			vel_msg.linear.x = currentVel - 0.1
-		else
-			vel_msg.linear.x = currentVel
-		
-		currentVel = vel_msg.linear.x
-		vel_msg.angular.x
-		vel_msg.angular.y = 0
-		vel_msg.angular.z = 0
-		return vel_msg
-
-	def atObstacle():
-		vel_msg = Twist()
-		vel_msg.linear.x = 0
-		currentVel = vel_msg.linear.x
-		vel_msg.linear.y = 0
-		vel_msg.linear.z = 0
-		vel_msg.angular.x = 0
-		vel_msg.angular.y = 0
-		vel_msg.angular.z = 0.5
-		return vel_msg
-
-
-	if d > 3:
-		return noObstacles()
-	elif d > 1:
-		return approachingObstacle()
-	else
-		return atObstacle()
+	global distance
 	
+	vel_msg = Twist()
+	vel_msg.linear.x = 0
+	vel_msg.linear.y = 0
+	vel_msg.linear.z = 0
+	vel_msg.angular.x = 0
+	vel_msg.angular.y = 0
+	vel_msg.angular.z = 0
+	
+	fastVel = .5
+	slowVel = .2
+	largeTurn = .5
+	smallTurn = .1
+	
+	if distance[0] > 1.5:
+		if distance[1] > 1.5:
+			if distance[2] > 1.5: 			#coast 000
+				vel_msg.linear.x = fastVel
+				print 'coast 000'
+			else:							#slight left 001
+				vel_msg.linear.x = slowVel
+				vel_msg.angular.z = smallTurn
+				print 'slight left 001'
+		else:
+			if distance[2] > 1.5: 			#turn right 010
+				vel_msg.angular.z = -largeTurn
+				print 'turn right 010'
+			else:							#turn left 011
+				vel_msg.angular.z = -largeTurn
+				print 'turn left 011'
+	else:
+		if distance[1] > 1.5:
+			if distance[2] > 1.5: 			#slight right 100
+				vel_msg.linear.x = slowVel
+				vel_msg.angular.z = -smallTurn
+				print 'slight right 100'
+			else:							#approach slowly 101
+				vel_msg.linear.x = slowVel
+				print 'approach slowly 101'
+		else:
+			if distance[2] > 1.5: 			#turn right 110
+				vel_msg.angular.z = -largeTurn
+				print 'turn right 110'
+			else:							#turn right 111
+				vel_msg.angular.z = -largeTurn
+				print 'turn right 111'
 
+	return vel_msg
 
 if __name__ == '__main__':
 	rospy.init_node('assign3')
 
 	#initialize laserData somehow
-
+	laserData = LaserScan()
+	global currentVel
+	
 	#set subscribers
-	rospy.Subscriber("/scan", sensor_msgs/LaserScan, update_laserScanData)
+	rospy.Subscriber("/scan", LaserScan, update_laserScanData)
 	
 	#set publishers
-	pubControlSignals = rospy.Publisher('/predator/cmd_vel', Twist, queue_size=2)
+	pubControlSignals = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size=2)
 
 	startTime = rospy.get_time()
 	while not rospy.is_shutdown():
-		rospy.sleep(0.1)
+		rospy.sleep(0.4)
 
-		robot_control_signal = computeControlSignal(getDistanceToWall(laserData))
+		robot_control_signal = computeControlSignal()
 		pubControlSignals.publish(robot_control_signal)
